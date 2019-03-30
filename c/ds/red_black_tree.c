@@ -240,49 +240,279 @@ typedef enum Order{
 } Order;
 
 // 递归中序遍历树
-void visit_node(const TNode * n, Order order){
+void visit_node(const TNode * n, Order order, int depth){
+    int i = 0;
     if(!n) return;
     switch(order){
         case middle:
-            printf("%d[%s],", n->value, n->color == RED? "RED" : "BLACK");
-            visit_node(n->left, order);
-            visit_node(n->right, order);
+            for(i = 0;i < depth; ++i) printf("\t");
+            printf("|-> %d[%s] \n", n->value, n->color == RED? "RED" : "BLACK");
+            visit_node(n->left, order, depth+1);
+            visit_node(n->right, order, depth+1);
             break;
         case post:
-            visit_node(n->left, order);
-            visit_node(n->right, order);
+            visit_node(n->left, order, depth+1);
+            visit_node(n->right, order, depth+1);
             printf("%d[%s],", n->value, n->color == RED? "RED" : "BLACK");
             break;
         case pre:
-            visit_node(n->left, order);
+            visit_node(n->left, order, depth+1);
             printf("%d[%s],", n->value, n->color == RED? "RED" : "BLACK");
-            visit_node(n->right, order);
+            visit_node(n->right, order, depth+1);
             break;
     }
 }
 
 void visit_tree(const RbTree * tree, Order order){
-    printf("tree:");
+    printf("tree: \n");
     if(!tree || !tree->root){
         printf("empty tree.\n");
         return;
     }
 
-    visit_node(tree->root, order);
+    visit_node(tree->root, order, 0);
     printf("\n");
+}
+
+/**
+ * 来自 Linux kernel 2.6.0 rbtree.c
+ * 进行删除时的颜色调整
+ * @parentNode 替换“被删除元素”的元素的初始父节点
+ * @childNode  替换“被删除元素”的元素的初始子节点
+ */ 
+void delete_adjust(RbTree * tree, TNode* parentNode, TNode* childNode){
+    // case 1 如果 childNode 已经是根节点，则只需要将其颜色改为黑色即可，这直接会执行 while 循环后面的 if 语句，将颜色改为 BLACK
+    TNode * other;
+
+    // 如果子节点是空或者子节点是黑色 且 子节点不是根节点(只要子节点不是根节点，则父节点必然存在)
+    while((!childNode || childNode->color == BLACK) && childNode != tree->root){
+        // 如果子节点是左孩子
+        if(childNode == parentNode->left) {
+            other = parentNode->right;
+            // case 2，如果兄弟节点为红色，
+            if(other->color == RED){
+                other->color = BLACK;
+                parentNode->color = RED;
+                left_rotate(tree, parentNode);
+                // parentNode->right 会指向 other 的左节点
+                other = parentNode->right;
+            }
+            
+            if((!other->left || other->left->color == BLACK) && (!other->right || other->right->color == BLACK)){
+                other->color = RED;
+                childNode = parentNode;
+                parentNode = parentNode->parent;
+            }else{
+                if(!other->right || other->right->color == BLACK){
+                    register TNode* oLeft;
+                    if((oLeft = other->left))
+                        oLeft->color = BLACK;
+                    other->color = RED;
+                    right_rotate(tree, other);
+                    other = parentNode->right;
+                }
+
+                other->color = parentNode->color;
+                parentNode->color = BLACK;
+                if(other->right)
+                    other->right->color = BLACK;
+                left_rotate(tree, parentNode);
+                childNode = tree->root;
+                break;
+            }
+        }else{
+            other = parentNode->left;
+            // case 2，如果兄弟节点为红色，
+            if(other->color == RED){
+                other->color = BLACK;
+                parentNode->color = RED;
+                right_rotate(tree, parentNode);
+                // parentNode->right 会指向 other 的左节点
+                other = parentNode->left;
+            }
+            if((!other->right || other->right->color == BLACK) && (!other->left || other->left->color == BLACK)){
+                other->color = RED;
+                childNode = parentNode;
+                parentNode = parentNode->parent;
+            }else{
+                if(!other->left || other->left->color == BLACK){
+                    register TNode* oRight;
+                    if((oRight = other->right))
+                        oRight->color = BLACK;
+                    other->color = RED;
+                    left_rotate(tree, other);
+                    other = parentNode->left;
+                }
+
+                other->color = parentNode->color;
+                parentNode->color = BLACK;
+                if(other->left)
+                    other->left->color = BLACK;
+                right_rotate(tree, parentNode);
+                childNode = tree->root;
+                break;
+            }
+        }
+    }
+
+    // 子节点的颜色调成黑色，让当前分支的黑色个数保持不变（因为删除的是黑色节点）
+    if(childNode) childNode->color = BLACK;
+}
+
+TNode * serach_node(RbTree * tree, int value){
+    if(!tree) return NULL;
+    TNode* target = tree->root;
+    while(target && target->value != value){
+        if(value < target->value){
+            target = target->left;
+        }else{
+            target = target->right;
+        }
+    }
+
+    return target;
+}
+
+/**
+ * 删除节点
+ * 核心思路：（https://zh.wikipedia.org/wiki/%E7%BA%A2%E9%BB%91%E6%A0%91）
+ * 如果需要删除的节点有两个儿子，那么问题可以被转化成删除另一个只有一个儿子的节点的问题（为了表述方便，这里所指的儿子，为非叶子节点的儿子）。
+ * 对于二叉查找树，在删除带有两个非叶子儿子的节点的时候，我们要么找到它左子树中的最大元素、要么找到它右子树中的最小元素，并把它的值转移到要
+ * 删除的节点中（如在这里所展示的那样）。我们接着删除我们从中复制出值的那个节点，它必定有少于两个非叶子的儿子。因为只是复制了一个值（没有复
+ * 制颜色），不违反任何性质，这就把问题简化为如何删除最多有一个儿子的节点的问题。它不关心这个节点是最初要删除的节点还是我们从中复制出值的那个节点。
+ * 
+ * 在本文余下的部分中，我们只需要讨论删除只有一个儿子的节点（如果它两个儿子都为空，即均为叶子，我们任意将其中一个看作它的儿子）。
+ * 如果我们删除一个红色节点（此时该节点的儿子将都为叶子节点），它的父亲和儿子一定是黑色的。所以我们可以简单的用它的黑色儿子替换它，并不会破坏性质3和性质4。
+ * 通过被删除节点的所有路径只是少了一个红色节点，这样可以继续保证性质5。另一种简单情况是在被删除节点是黑色而它的儿子是红色的时候。如果只是去除这个黑色节点，
+ * 用它的红色儿子顶替上来的话，会破坏性质5，但是如果我们重绘它的儿子为黑色，则曾经通过它的所有路径将通过它的黑色儿子，这样可以继续保持性质5。
+ * 
+ * 需要进一步讨论的是在要删除的节点和它的儿子二者都是黑色的时候，这是一种复杂的情况（这种情况下该结点的两个儿子都是叶子结点，否则若其中一个儿子是黑色非叶子
+ * 结点，另一个儿子是叶子结点，那么从该结点通过非叶子结点儿子的路径上的黑色结点数最小为2，而从该结点到另一个叶子结点儿子的路径上的黑色结点数为1，违反了性质5）。
+ * 我们首先把要删除的节点替换为它的儿子。出于方便，称呼这个儿子为N（在新的位置上），称呼它的兄弟（它父亲的另一个儿子）为S。在下面的示意图中，我们还是使用P称呼
+ * N的父亲，SL称呼S的左儿子，SR称呼S的右儿子。
+ * 
+ * @return 返回删除的节点数量
+ */
+int delete_node(RbTree * tree, int value){
+    // 1. 找到要删除的节点
+    TNode * delNode = serach_node(tree, value);
+    if(!delNode){ // not found, nothing need to do.
+        return 0;
+    }
+
+    // 2. 如果左右子树都不为空的情况下，我们需要找到替换的节点，进而将包含两个非空子节点的问题，转换成最多包含一个非空节点的问题，
+    // 这里有两种方案，一种是找左子树的最大值，另一种是找右子树的最小值，在这里，我们查找右子树的最小值
+    TNode * child = NULL,* parent = NULL;
+    Color delColor;
+    if(delNode->right && delNode->left){
+        TNode* minRightNode = delNode->right;
+        // 找右子树最小节点
+        while(minRightNode->left) minRightNode = minRightNode->left;
+
+        delColor = minRightNode->color;
+        parent = minRightNode->parent;
+
+        child = minRightNode->right; // minRightNode->left must be NULL
+        if(child) { // 如果子节点不为空，移除 minRightNode 所在的位置
+            // 则将子节点的父节点指向 minRightNode 的父节点
+            child->parent = minRightNode->parent;
+        }
+
+        // 再将父节点的父节点指向子节点
+        if(minRightNode->parent->left == minRightNode){
+            minRightNode->parent->left = child;
+        }else{
+            minRightNode->parent->right = child;
+        }
+
+        // 将要被删除的节点和右子树最小节点进行位置替换，除了值，即让右子树最小节点到达被删除节点的位置
+        minRightNode->parent = delNode->parent;
+        minRightNode->left = delNode->left;
+        minRightNode->right = delNode->right;
+        minRightNode->color = delNode->color;
+
+        if(delNode->parent){
+            if(delNode->parent->left == delNode){
+                delNode->parent->left = minRightNode;
+            }else{
+                delNode->parent->right = minRightNode;
+            }
+        }else{
+            tree->root = minRightNode;
+        }
+
+        delNode->left->parent = minRightNode;
+        if(delNode->right)
+            delNode->right->parent = minRightNode;
+    }else{
+        if(!delNode->left) child = delNode->right;
+        else if(!delNode->right) child = delNode->left;
+
+        parent = delNode->parent;
+        delColor = delNode->color;
+
+        // child 节点替换 delNode 的位置
+        if(child){
+            child->parent = parent;
+        }
+        // delNode 为跟节点时，parent 可能为空
+        if(parent){
+            if(delNode == parent->left) 
+                parent->left = child;
+            else 
+                parent->right = child;
+        }else{
+            tree->root = child;
+        }
+    }
+
+    // 若删除的节点的颜色是红色，则不需要关注，只有为黑色的节点，才需要进行颜色的调整
+    if(delColor == BLACK)
+        delete_adjust(tree, parent, child);
+
+    free(delNode);
+    delNode = NULL;
+    return 1;
 }
 
 int main(int argc, char const *argv[]) {
     printf("hello world, red-black tree. \n");
     RbTree * tree = new_tree();
+    
+    while(1){
+        printf("input insert number...\n");
+        int nbr = 0;
+        scanf("%d", &nbr);
+        insert(tree,nbr);
+        visit_tree(tree, middle);
 
-    insert(tree,1);
-    insert(tree,2);
-    insert(tree,3);
-    insert(tree,4);
-    insert(tree,5);
-    insert(tree,12);
-    insert(tree,11);
+        if(nbr == -1) break;
+    }
+
+    printf("begin to delete... \n");
+    while(1){
+        printf("input deleted number...\n");
+        int nbr = 0;
+        scanf("%d", &nbr);
+        int r = delete_node(tree, nbr);
+        if(r == 0){
+            printf("not found %d\n", nbr);
+        }
+        visit_tree(tree, middle);
+    }
+    /*delete_node(tree, 11);
     visit_tree(tree, middle);
+    delete_node(tree, 12);
+    visit_tree(tree, middle);
+    delete_node(tree, 5);
+    visit_tree(tree, middle);
+    delete_node(tree, 4);
+    visit_tree(tree, middle);
+    delete_node(tree, 3);
+    visit_tree(tree, middle);
+    delete_node(tree, 2);
+    visit_tree(tree, middle);
+    delete_node(tree, 1);
+    visit_tree(tree, middle);*/
     return 0;
 }
