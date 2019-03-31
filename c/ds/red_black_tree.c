@@ -122,7 +122,7 @@ void right_rotate(RbTree *tree, TNode* node){
     TNode * lNode = node->left;
 
     if(!pNode){
-        tree->root = node;
+        tree->root = lNode;
     } else {
         if(node == pNode->right)
             pNode->right = lNode;
@@ -245,19 +245,31 @@ void visit_node(const TNode * n, Order order, int depth){
     if(!n) return;
     switch(order){
         case middle:
-            for(i = 0;i < depth; ++i) printf("\t");
-            printf("|-> %d[%s] \n", n->value, n->color == RED? "RED" : "BLACK");
+            for(i = 0;i < depth; ++i) {
+                if(i == depth - 1)
+                    printf("|----");
+                else
+                    printf("\t");
+            }
+
+            printf("-> %d[%s,%s] \n", n->value, 
+                n->parent?(n == n->parent->left?"l":"r"):"_r",
+                n->color == RED? "RED" : "BLACK");
             visit_node(n->left, order, depth+1);
             visit_node(n->right, order, depth+1);
             break;
         case post:
             visit_node(n->left, order, depth+1);
             visit_node(n->right, order, depth+1);
-            printf("%d[%s],", n->value, n->color == RED? "RED" : "BLACK");
+            printf("%d[%s,%s] \n", n->value, 
+                n->parent?(n == n->parent->left?"l":"r"):"_r",
+                n->color == RED? "RED" : "BLACK");
             break;
         case pre:
             visit_node(n->left, order, depth+1);
-            printf("%d[%s],", n->value, n->color == RED? "RED" : "BLACK");
+            printf("%d[%s,%s] \n", n->value, 
+                n->parent?(n == n->parent->left?"l":"r"):"_r",
+                n->color == RED? "RED" : "BLACK");
             visit_node(n->right, order, depth+1);
             break;
     }
@@ -282,72 +294,102 @@ void visit_tree(const RbTree * tree, Order order){
  */ 
 void delete_adjust(RbTree * tree, TNode* parentNode, TNode* childNode){
     // case 1 如果 childNode 已经是根节点，则只需要将其颜色改为黑色即可，这直接会执行 while 循环后面的 if 语句，将颜色改为 BLACK
-    TNode * other;
+    TNode * brother;
 
     // 如果子节点是空或者子节点是黑色 且 子节点不是根节点(只要子节点不是根节点，则父节点必然存在)
     while((!childNode || childNode->color == BLACK) && childNode != tree->root){
         // 如果子节点是左孩子
         if(childNode == parentNode->left) {
-            other = parentNode->right;
-            // case 2，如果兄弟节点为红色，
-            if(other->color == RED){
-                other->color = BLACK;
+            brother = parentNode->right;
+            /**
+             * case 1
+             *  x是”黑+黑”节点，x的兄弟节点是红色。(此时x的父节点和x的兄弟节点的子节点都是黑节点)。
+             *  (01) 将x的兄弟节点设为“黑色”。
+             *  (02) 将x的父节点设为“红色”。
+             *  (03) 对x的父节点进行左旋。
+             *  (04) 左旋后，重新设置x的兄弟节点。
+            */
+            if(brother->color == RED){
+                brother->color = BLACK;
                 parentNode->color = RED;
                 left_rotate(tree, parentNode);
-                // parentNode->right 会指向 other 的左节点
-                other = parentNode->right;
+                // parentNode->right 会指向 brother 的左节点
+                brother = parentNode->right;
             }
-            
-            if((!other->left || other->left->color == BLACK) && (!other->right || other->right->color == BLACK)){
-                other->color = RED;
+
+            /**
+             * case 2 
+             *   x的兄弟节点是黑色，x的兄弟节点的两个孩子都是黑色。
+             *   (01) 将x的兄弟节点设为“红色”。
+             *   (02) 设置“x的父节点”为“新的x节点”。
+             */
+            if((!brother->left || brother->left->color == BLACK) && (!brother->right || brother->right->color == BLACK)){
+                brother->color = RED;
                 childNode = parentNode;
                 parentNode = parentNode->parent;
             }else{
-                if(!other->right || other->right->color == BLACK){
+                /**
+                 * case 3
+                 * x的兄弟节点是黑色；x的兄弟节点的左孩子是红色，右孩子是黑色的。
+                 *   (01) 将x兄弟节点的左孩子设为“黑色”。
+                 *   (02) 将x兄弟节点设为“红色”。
+                 *   (03) 对x的兄弟节点进行右旋。
+                 *   (04) 右旋后，重新设置x的兄弟节点。
+                 */
+                if(!brother->right || brother->right->color == BLACK){
                     register TNode* oLeft;
-                    if((oLeft = other->left))
+                    if((oLeft = brother->left))
                         oLeft->color = BLACK;
-                    other->color = RED;
-                    right_rotate(tree, other);
-                    other = parentNode->right;
+                    brother->color = RED;
+                    right_rotate(tree, brother);
+                    brother = parentNode->right;
                 }
 
-                other->color = parentNode->color;
+                /**
+                 * case 4
+                 * x的兄弟节点是黑色；x的兄弟节点的右孩子是红色的，x的兄弟节点的左孩子任意颜色。
+                 *   (01) 将x父节点颜色赋值给x的兄弟节点。
+                 *   (02) 将x父节点设为“黑色”。
+                 *   (03) 将x兄弟节点的右子节设为“黑色”。
+                 *   (04) 对x的父节点进行左旋。
+                 *   (05) 设置“x”为“根节点”。 
+                 */
+                brother->color = parentNode->color;
                 parentNode->color = BLACK;
-                if(other->right)
-                    other->right->color = BLACK;
+                if(brother->right)
+                    brother->right->color = BLACK;
                 left_rotate(tree, parentNode);
                 childNode = tree->root;
                 break;
             }
         }else{
-            other = parentNode->left;
+            brother = parentNode->left;
             // case 2，如果兄弟节点为红色，
-            if(other->color == RED){
-                other->color = BLACK;
+            if(brother->color == RED){
+                brother->color = BLACK;
                 parentNode->color = RED;
                 right_rotate(tree, parentNode);
-                // parentNode->right 会指向 other 的左节点
-                other = parentNode->left;
+                // parentNode->right 会指向 brother 的左节点
+                brother = parentNode->left;
             }
-            if((!other->right || other->right->color == BLACK) && (!other->left || other->left->color == BLACK)){
-                other->color = RED;
+            if((!brother->right || brother->right->color == BLACK) && (!brother->left || brother->left->color == BLACK)){
+                brother->color = RED;
                 childNode = parentNode;
                 parentNode = parentNode->parent;
             }else{
-                if(!other->left || other->left->color == BLACK){
+                if(!brother->left || brother->left->color == BLACK){
                     register TNode* oRight;
-                    if((oRight = other->right))
+                    if((oRight = brother->right))
                         oRight->color = BLACK;
-                    other->color = RED;
-                    left_rotate(tree, other);
-                    other = parentNode->left;
+                    brother->color = RED;
+                    left_rotate(tree, brother);
+                    brother = parentNode->left;
                 }
 
-                other->color = parentNode->color;
+                brother->color = parentNode->color;
                 parentNode->color = BLACK;
-                if(other->left)
-                    other->left->color = BLACK;
+                if(brother->left)
+                    brother->left->color = BLACK;
                 right_rotate(tree, parentNode);
                 childNode = tree->root;
                 break;
@@ -359,7 +401,7 @@ void delete_adjust(RbTree * tree, TNode* parentNode, TNode* childNode){
     if(childNode) childNode->color = BLACK;
 }
 
-TNode * serach_node(RbTree * tree, int value){
+TNode * search_node(RbTree * tree, int value){
     if(!tree) return NULL;
     TNode* target = tree->root;
     while(target && target->value != value){
@@ -395,7 +437,7 @@ TNode * serach_node(RbTree * tree, int value){
  */
 int delete_node(RbTree * tree, int value){
     // 1. 找到要删除的节点
-    TNode * delNode = serach_node(tree, value);
+    TNode * delNode = search_node(tree, value);
     if(!delNode){ // not found, nothing need to do.
         return 0;
     }
